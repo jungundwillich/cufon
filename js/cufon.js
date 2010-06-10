@@ -173,10 +173,8 @@ var Cufon = (function() {
 		},
 
 		textAlign: function(word, style, position, wordCount) {
-			if (style.get('textAlign') == 'right') {
-				if (position > 0) word = ' ' + word;
-			}
-			else if (position < wordCount - 1) word += ' ';
+			if ((style.get('textAlign') == 'right') && (position > 0) && (!/[\u2062\u2064]/.test(word))) word = ' ' + word;
+			else if ((style.get('textAlign') !== 'right') && (!/[\u00AD\u002D]$/.test(word)) && (position < wordCount - 1)) word = word + ' ';
 			return word;
 		},
 
@@ -596,11 +594,18 @@ var Cufon = (function() {
 		return merged;
 	}
 
+	function wrap(text, hyphenate) {
+		// Wrap soft hyphens and hyphens for line breaks
+		if (hyphenate) text = text.replace(/\u00AD/g, "\u00AD\u2063\u2062");			// Soft hyphens
+		text = text.replace(/[\u2010\u002D]/g, "\u002D\u2063\u2064");	// Hyphens
+		return text;
+	}
+
 	function process(font, text, style, options, node, el) {
 		var fragment = document.createDocumentFragment(), processed;
 		if (text === '') return fragment;
 		var separate = options.separate;
-		var parts = text.split(separators[separate]), needsAligning = (separate == 'words');
+		var parts = wrap(text, options.hyphenate).split(separators[separate]), needsAligning = (separate == 'words');
 		if (needsAligning && HAS_BROKEN_REGEXP) {
 			// @todo figure out a better way to do this
 			if (/^\s/.test(text)) parts.unshift('');
@@ -610,7 +615,13 @@ var Cufon = (function() {
 			processed = engines[options.engine](font,
 				needsAligning ? CSS.textAlign(parts[i], style, i, l) : parts[i],
 				style, options, node, el, i < l - 1);
-			if (processed) fragment.appendChild(processed);
+			if (processed) {
+				if (options.hyphenate) {
+  					if (/^[^\u2062].+?(\u00AD)/g.test(parts[i])) processed.className += ' first';
+	  				if (/^\u2062.*?[^\u00AD]$/g.test(parts[i])) processed.className += ' last';
+   				}
+				fragment.appendChild(processed);
+			}
 		}
 		return fragment;
 	}
@@ -673,6 +684,7 @@ var Cufon = (function() {
 		hoverables: {
 			a: true
 		},
+		hyphenate: false,
 		ignore: {
 			applet: 1,
 			canvas: 1,
@@ -727,7 +739,7 @@ var Cufon = (function() {
 		// code point 255 to be removed in Safari 3.0. Luckily enough
 		// Safari 3.0 does not include non-breaking spaces in \s, so
 		// we can just use a simple alternative pattern.
-		words: /\s/.test('\u00a0') ? /[^\S\u00a0]+/ : /\s+/,
+		words: /\s/.test('\u00a0') ? /[\u2063\s\u00A0]+/g : /[\u2063\s]+/g,
 		characters: '',
 		none: /^/
 	};
@@ -806,6 +818,8 @@ Cufon.registerEngine('canvas', (function() {
 	check = null;
 
 	var HAS_INLINE_BLOCK = Cufon.CSS.supports('display', 'inline-block');
+	
+	var HAS_USER_SELECT = Cufon.CSS.supports('user-select', 'all') || Cufon.CSS.supports('-moz-user-select', 'all') || Cufon.CSS.supports('-webkit-user-select', 'all') || Cufon.CSS.supports('-khtml-user-select', 'all');
 
 	// Firefox 2 w/ non-strict doctype (almost standards mode)
 	var HAS_BROKEN_LINEHEIGHT = !HAS_INLINE_BLOCK && (document.compatMode == 'BackCompat' || /frameset|transitional/i.test(document.doctype.publicId));
@@ -816,6 +830,9 @@ Cufon.registerEngine('canvas', (function() {
 		'cufon{text-indent:0;}' +
 		'@media screen,projection{' +
 			'cufon{display:inline;display:inline-block;position:relative;vertical-align:middle;' +
+			(HAS_USER_SELECT
+				? ''
+				: 'user-select:all;-moz-user-select:all;-webkit-user-select:all;-khtml-user-select:all;color:rgba(0,0,0,0);') +
 			(HAS_BROKEN_LINEHEIGHT
 				? ''
 				: 'font-size:1px;line-height:1px;') +
